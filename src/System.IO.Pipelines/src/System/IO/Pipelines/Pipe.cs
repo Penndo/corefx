@@ -911,6 +911,33 @@ namespace System.IO.Pipelines
             }
         }
 
+        internal ValueTask<FlushResult> WriteAsync(ReadOnlyMemory<byte> source, CancellationToken cancellationToken)
+        {
+            if (_writerCompletion.IsCompleted)
+            {
+                ThrowHelper.ThrowInvalidOperationException_NoWritingAllowed();
+            }
+
+            if (_operationState.IsWritingActive && source.Length < _writingMemory.Length)
+            {
+                var bytesWritten = source.Length;
+
+                // Fast path no locks
+                source.CopyTo(_writingMemory);
+
+                _currentWriteLength += bytesWritten;
+                _buffered += bytesWritten;
+                _writingMemory = _writingMemory.Slice(bytesWritten);
+            }
+            else
+            {
+                // Slow path
+                Writer.Write(source.Span);
+            }
+
+            return FlushAsync(cancellationToken);
+        }
+
         internal void OnFlushAsyncCompleted(Action<object> continuation, object state, ValueTaskSourceOnCompletedFlags flags)
         {
             CompletionData completionData;
